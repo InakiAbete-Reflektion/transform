@@ -2,6 +2,9 @@ import React, { useCallback, useMemo, useState } from "react";
 import { promises as fs } from "fs";
 import path from "path";
 import dynamic from "next/dynamic";
+import theme from "./theme";
+import hex2tailwind from "hex2tailwind";
+import objectPath from "object-path";
 
 import {
   Dialog,
@@ -155,6 +158,51 @@ function CssToTailwindSettings({
   );
 }
 
+function expandCssShorthand(css) {
+  const shorthandRegex = /(\w+):\s*([^;]+);/g;
+  let expandedCss = css.replace(shorthandRegex, (match, property, value) => {
+    const propertyMap = {
+      // 'margin': ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+      // 'padding': ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+      background: ["background-color"],
+      border: ["border-top", "border-right", "border-bottom", "border-left"],
+      "border-width": [
+        "border-top-width",
+        "border-right-width",
+        "border-bottom-width",
+        "border-left-width"
+      ],
+      "border-style": [
+        "border-top-style",
+        "border-right-style",
+        "border-bottom-style",
+        "border-left-style"
+      ],
+      "border-color": [
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color"
+      ],
+      outline: ["outline-width", "outline-style", "outline-color"]
+      // Add more shorthands as needed
+    };
+
+    const expandedProperties = propertyMap[property]
+      ? propertyMap[property]
+          .map(
+            (expandedProp, index) =>
+              `${expandedProp}: ${value.split(/\s+/)[index]};`
+          )
+          .join(" ")
+      : `${property}: ${value};`;
+
+    return expandedProperties;
+  });
+
+  return expandedCss;
+}
+
 export default function CssToTailwind3({ defaultSettings }) {
   const [rawSettings, setRawSettings] = useSettings(
     "css-to-tailwind",
@@ -209,9 +257,24 @@ export default function CssToTailwind3({ defaultSettings }) {
 
   const transformer = useCallback<Transformer>(
     async ({ value }) => {
+      const css = expandCssShorthand(value).replace(/\$\{(.+)\}/g, result => {
+        const [, path] = result
+          .replace("theme.vars.", "")
+          .replace(/\['(.+)'\]/, ".$1")
+          .match(/\$\{(.+)\}/);
+        console.log(
+          theme,
+          "found:",
+          path,
+          "result:",
+          objectPath.get(theme, path)
+        );
+        return objectPath.get(theme, path);
+      });
+      console.log("CSS", css);
       try {
         return decorateResult(
-          (await tailwindConverter.convertCSS(value)).convertedRoot.toString()
+          (await tailwindConverter.convertCSS(css)).convertedRoot.toString()
         );
       } catch (e) {
         toaster.danger("Unable to convert CSS", {
